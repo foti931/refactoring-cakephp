@@ -1,0 +1,8 @@
+.git
+vendor
+tmp
+logs
+node_modules
+.DS_Store
+/official-cakephp-app
+/cakephp-official-refactor*

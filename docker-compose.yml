@@ -1,0 +1,40 @@
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "8080:80"
+    environment:
+      APP_NAME: "Refactor CakePHP"
+      DEBUG: "true"
+      DB_HOST: "db"
+      DB_PORT: "3306"
+      DB_DATABASE: "cake_refactor"
+      DB_USERNAME: "cake_user"
+      DB_PASSWORD: "cake_password"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_DATABASE: "cake_refactor"
+      MARIADB_USER: "cake_user"
+      MARIADB_PASSWORD: "cake_password"
+      MARIADB_ROOT_PASSWORD: "root_password"
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - mariadb-data:/var/lib/mysql
+
+volumes:
+  mariadb-data:
