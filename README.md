@@ -1,47 +1,48 @@
-# CakePHP FatController Refactoring Exercise
+# CakePHP FatController リファクタリング演習
 
-This repository is a concrete starting point for discussing an incremental
-refactoring of a commercial CakePHP 4.5.2 / PHP 8.3.6 application.
+このリポジトリは、CakePHP 4.5.2 / PHP 8.3.6 で動いている商用システムを想定し、
+FatController を段階的にリファクタリングするための具体的な検討材料です。
 
-The assumed application has many settings screens and few tests. The example is
-not a claim about the real system. It is a deliberately explicit hypothesis to
-review and adjust before applying the approach to production code.
+想定しているのは、画面数や機能数が多く、設定画面のような更新処理が多い一方で、
+テストがほとんど存在しない CakePHP アプリケーションです。
+このサンプルは実システムそのものを断定するものではありません。
+本番コードに適用する前に、仮説としてレビューし、実態に合わせて修正するための土台です。
 
-## Hypothetical Screen
+## 想定画面
 
-The sample screen updates tenant-specific notification settings:
+サンプル画面では、テナント単位の通知設定を更新します。
 
-- only an administrator may update settings;
-- input is normalized and validated;
-- the main settings row and recipient rows are saved in one transaction;
-- an audit log is written after a successful save;
-- a settings cache is evicted;
-- a change notification is sent only when recipients changed.
+- 管理者だけが設定を更新できる
+- 入力値を正規化し、バリデーションする
+- メイン設定行と通知先行を 1 トランザクションで保存する
+- 保存成功後に監査ログを書く
+- 設定キャッシュを削除する
+- 通知先が変わった場合だけ変更通知を送る
 
-The initial implementation puts all of this in a controller action. This is the
-kind of behavior that becomes expensive to test when repeated across many
-settings screens.
+初期実装では、これらをすべて Controller の 1 action に詰め込んでいます。
+この種の処理が多数の設定画面に散らばると、変更のたびにテストしづらくなり、
+保守コストが上がります。
 
-## ORM Hypothesis
+## ORM の仮説
 
-The sample now includes concrete CakePHP ORM classes:
+このサンプルには CakePHP ORM の具体的なクラスを含めています。
 
 - [`src/Model/Entity`](src/Model/Entity)
 - [`src/Model/Table`](src/Model/Table)
 - [`docs/schema-hypothesis.sql`](docs/schema-hypothesis.sql)
 
-The model assumes dedicated tables for the screen. The SQL is illustrative, not
-a production migration. Database engine, naming rules, foreign keys, and tenant
-table definitions must be confirmed before turning it into a migration.
+このモデルでは、画面専用のテーブルが存在する前提にしています。
+SQL は説明用であり、そのまま本番 migration にするものではありません。
+実システムに適用する前に、DB エンジン、命名規則、外部キー、テナント管理テーブルの定義を確認する必要があります。
 
-The runnable spaghetti baseline now uses:
+起動可能なスパゲッティ実装では、以下のテーブルを使います。
 
 - `system_settings`
 - `system_setting_recipients`
 - `system_feature_flags`
 - `audit_logs`
 
-## Read In Order
+## 読む順番
 
 1. [`examples/step-00-fat-controller/SystemSettingsController.php`](examples/step-00-fat-controller/SystemSettingsController.php)
 2. [`src/Model/Table/SystemSettingsTable.php`](src/Model/Table/SystemSettingsTable.php)
@@ -49,52 +50,51 @@ The runnable spaghetti baseline now uses:
 4. [`src/Application/SystemSettings/UpdateSystemSettings.php`](src/Application/SystemSettings/UpdateSystemSettings.php)
 5. [`tests/Application/SystemSettings/UpdateSystemSettingsTest.php`](tests/Application/SystemSettings/UpdateSystemSettingsTest.php)
 
-## Run
+## 起動方法
 
-This project now runs with Docker, Apache HTTP, PHP 8.3, CakePHP 4.5.2, and
-MariaDB 10.11:
+このプロジェクトは Docker で起動します。
+構成は Apache HTTP、PHP 8.3、CakePHP 4.5.2、MariaDB 10.11 です。
 
 ```sh
 docker compose up --build -d
 docker compose exec app composer init-db
 ```
 
-Open <http://127.0.0.1:8080>. The runnable page intentionally uses the
-FatController baseline in
-[`src/Controller/SystemSettingsController.php`](src/Controller/SystemSettingsController.php).
-It mixes request parsing, validation, normalization, authorization-like checks,
-multi-table writes, audit logging, cache eviction, and GET view shaping in one
-controller action.
+ブラウザで <http://127.0.0.1:8080> を開きます。
 
-The focused application-layer tests are separate:
+起動する画面は、意図的に FatController のままにしている
+[`src/Controller/SystemSettingsController.php`](src/Controller/SystemSettingsController.php)
+を使います。
+この Controller は、リクエスト解析、バリデーション、正規化、認可のような判定、
+複数テーブルへの書き込み、監査ログ、キャッシュ削除、GET 表示用データ整形を
+1 action に混在させています。
+
+Application 層に切り出した後のテストは、以下で実行できます。
 
 ```sh
 docker compose exec app composer test
 ```
 
-To reproduce the official CakePHP startup-guide generation separately, run:
+CakePHP 公式スタートアップガイドの生成手順を別ディレクトリで再現する場合は、
+以下を実行します。
 
 ```sh
 docker compose run --rm app sh scripts/bootstrap-official.sh /tmp/official-cakephp-app
 ```
 
-That script follows the CakePHP 4 official `composer create-project` flow and
-then pins `cakephp/cakephp` to `4.5.2`. It writes to a separate directory so this
-refactoring exercise is not overwritten.
+このスクリプトは CakePHP 4 公式の `composer create-project` の流れに従い、
+その後 `cakephp/cakephp` を `4.5.2` に固定します。
+このリファクタリング演習用コードを上書きしないよう、別ディレクトリに出力します。
 
-## Questions For The Real System
+## 実システムに適用する前に確認すること
 
-The answers determine whether this architecture should be kept, simplified, or
-extended:
+以下の答えによって、このアーキテクチャを維持するか、簡略化するか、拡張するかが変わります。
 
-1. Are settings tenant-specific, user-specific, global, or mixed?
-2. How is authorization implemented today: Authentication/Authorization
-   plugins, a custom component, or ad hoc role checks?
-3. Are settings stored in dedicated tables, a generic key-value table, JSON
-   columns, or multiple patterns?
-4. Which side effects exist in practice: audit logs, cache eviction, file
-   writes, external APIs, email, or none?
-5. Are concurrent edits possible, and must lost updates be prevented?
-6. Is there a shared base controller or component used by many settings screens?
-7. What database is used, and how are test databases provisioned?
-8. Which setting screen has the highest modification frequency or incident rate?
+1. 設定はテナント単位、ユーザー単位、グローバル、または混在のどれか
+2. 認可は現在どう実装されているか。Authentication / Authorization plugin、独自 Component、または action 内の role 判定か
+3. 設定値は専用テーブル、汎用 key-value テーブル、JSON カラム、または複数パターンのどれで保存されているか
+4. 実際に存在する副作用は何か。監査ログ、キャッシュ削除、ファイル書き込み、外部 API、メール送信、または副作用なしのどれか
+5. 同時編集は起きるか。ロストアップデートを防ぐ必要があるか
+6. 多くの設定画面で共通利用されている BaseController や Component はあるか
+7. 利用 DB は何か。テスト DB はどう作成しているか
+8. 変更頻度または障害頻度が最も高い設定画面はどれか
