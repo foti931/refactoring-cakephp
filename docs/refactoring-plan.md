@@ -1,103 +1,145 @@
-# Incremental Refactoring Plan
+# リファクタリング計画
 
-## Why This Shape
+このドキュメントは、CakePHP の FatController を段階的にテストしやすい構造へ移すための計画です。
+対象は「設定画面が多く、状態遷移は少ないが、保存処理・副作用・認可・表示整形が Controller に混在している」システムです。
 
-A settings-heavy application is usually not dominated by complex state
-machines. Its recurring difficulty is orchestration: authorization, request
-conversion, validation, persistence across tables, transactions, and side
-effects are duplicated or mixed together.
+## 基本方針
 
-The first target is therefore not a large domain model. It is a small
-application service per update use case, plus narrow interfaces around effects.
-Add richer domain objects only where actual rules justify them.
+最初から大きなドメインモデルを作らない。
 
-## Step 00: Freeze The Existing Behavior
+この種のシステムでまず問題になるのは、複雑な状態遷移ではなく、以下の処理が Controller に混ざっていることです。
 
-Read
-[`examples/step-00-fat-controller/SystemSettingsController.php`](../examples/step-00-fat-controller/SystemSettingsController.php).
-It is intentionally difficult to unit test. CakePHP request state, ORM calls,
-authorization, transaction control, cache, logging, and mail are interleaved.
+- リクエスト値の取得
+- 入力値の正規化
+- バリデーション
+- 認可
+- 複数テーブルへの保存
+- トランザクション制御
+- 監査ログ
+- キャッシュ削除
+- メールや外部 API などの副作用
+- GET 表示用のデータ整形
 
-Before moving logic, add controller integration tests around the real action:
+したがって最初の着地点は、画面単位またはユースケース単位の Application Service です。
+Domain Service や Value Object は、実際に複数箇所で同じ業務ルールが確認できてから導入します。
 
-- authorized valid update;
-- unauthorized update;
-- invalid email address;
-- persistence failure and rollback;
-- changed and unchanged recipients.
+## 現在の教材構成
 
-These characterization tests are the safety net. They describe current behavior,
-including behavior that may later be judged incorrect.
+現在の起動可能な画面は、意図的に汚い FatController のままです。
 
-## Step 01: Add A Wrapper Without Moving Rules
+- 実行される Controller: [`src/Controller/SystemSettingsController.php`](../src/Controller/SystemSettingsController.php)
+- 汚い実装の読み物版: [`examples/step-00-fat-controller/SystemSettingsController.php`](../examples/step-00-fat-controller/SystemSettingsController.php)
+- ラッパー導入例: [`examples/step-01-wrapper`](../examples/step-01-wrapper)
+- 薄い Controller の最終形例: [`examples/step-04-thin-controller/SystemSettingsController.php`](../examples/step-04-thin-controller/SystemSettingsController.php)
+- Application Service: [`src/Application/SystemSettings/UpdateSystemSettings.php`](../src/Application/SystemSettings/UpdateSystemSettings.php)
+- Application Service のテスト: [`tests/Application/SystemSettings/UpdateSystemSettingsTest.php`](../tests/Application/SystemSettings/UpdateSystemSettingsTest.php)
 
-Read
-[`examples/step-01-wrapper/SystemSettingsWriter.php`](../examples/step-01-wrapper/SystemSettingsWriter.php).
+## Step 00: 現状の挙動を固定する
 
-Instantiate the wrapper through dependency injection and replace the ORM save
-block in the legacy controller with:
+目的は、既存コードをきれいにする前に、壊してはいけない挙動を明文化することです。
+
+まず [`examples/step-00-fat-controller/SystemSettingsController.php`](../examples/step-00-fat-controller/SystemSettingsController.php) を読みます。
+CakePHP の request、ORM、認可、transaction、cache、log、通知が 1 action に混在しており、単体テストが難しい状態です。
+
+この段階で追加するテストは、きれいな設計のテストではなく Characterization Test です。
+現在の挙動を固定するために、以下を確認します。
+
+- 権限があるユーザーは正しい入力で保存できる
+- 権限がないユーザーは保存できない
+- 不正なメールアドレスは保存できない
+- 保存失敗時に中途半端な更新が残らない
+- 通知先が変わった場合だけ通知が発生する
+- 通知先が同じ場合は通知しない
+
+この時点では、既存挙動が業務的に正しいかどうかを判断しません。
+まず「今どう動いているか」を固定します。
+
+完了条件:
+
+- 対象 action の主要な分岐がテストで表現されている
+- DB 更新と副作用の有無がテストから読める
+- 以後の変更で壊れた場合に検知できる
+
+## Step 01: ルールを動かさず保存処理だけラップする
+
+目的は、Controller の中にある保存ブロックへ境界を作ることです。
+
+[`examples/step-01-wrapper/SystemSettingsWriter.php`](../examples/step-01-wrapper/SystemSettingsWriter.php) のように、まずは保存処理をラッパーへ移します。
+この段階では、validation や副作用の判断を移しません。
+
+置き換えイメージ:
 
 ```php
 $settingsWriter->save($tenantId, $enabled, $senderName, $recipients);
 ```
 
-The wrapper keeps the existing transaction boundary. The controller still owns
-validation and side-effect decisions. This small step creates one place for
-persistence integration tests and lowers the risk of the next move.
+重要なのは、いきなり正しい設計へ飛ばないことです。
+最初のラッパーは、既存の transaction 境界と保存順を維持します。
+内部実装が汚くても構いません。
 
-For the literal first replacement, see
-[`examples/step-01-wrapper/controller-replacement.php`](../examples/step-01-wrapper/controller-replacement.php).
-The teaching snapshot constructs the wrapper inline so that the replacement is
-obvious. In the real application, register it in the CakePHP DI container after
-the wrapper behavior is covered by a test.
+完了条件:
 
-## Step 02: Introduce A Command
+- Controller から直接の複数テーブル保存が減っている
+- ラッパー単位で persistence integration test が書ける
+- Controller の外へ移したにもかかわらず Step 00 のテストが通る
 
-Read
-[`src/Application/SystemSettings/UpdateSystemSettingsCommand.php`](../src/Application/SystemSettings/UpdateSystemSettingsCommand.php).
+## Step 02: Command を導入する
 
-Convert HTTP input once at the controller edge. The application layer receives
-a typed command, not `ServerRequest`, session state, or CakePHP entities. This
-makes the use case callable from a CLI, job, or future API without pretending
-those transports are identical.
+目的は、HTTP request とユースケース入力を分離することです。
 
-## Step 03: Move Orchestration Behind Ports
+[`src/Application/SystemSettings/UpdateSystemSettingsCommand.php`](../src/Application/SystemSettings/UpdateSystemSettingsCommand.php) のように、Controller の端で request を型付きの command に変換します。
+Application 層には `ServerRequest`、session、CakePHP Entity を渡しません。
 
-Read
-[`src/Application/SystemSettings/UpdateSystemSettings.php`](../src/Application/SystemSettings/UpdateSystemSettings.php).
+これにより、同じユースケースを将来的に CLI、batch、API から呼ぶ場合でも、HTTP に依存しない形を保てます。
 
-The application service now owns the stable order of work:
+完了条件:
 
-1. authorize;
-2. normalize;
-3. validate;
-4. persist atomically;
-5. record an audit entry;
-6. evict cache;
-7. notify only when recipients changed.
+- Application 層の public method が CakePHP の request object に依存していない
+- 入力値の型と意味が command から読める
+- Controller は request から command を作るだけになっている
 
-The interfaces in
-[`src/Application/SystemSettings/Port`](../src/Application/SystemSettings/Port)
-are deliberately narrow. Implement them with CakePHP ORM, the current cache
-component, and the current notifier. During migration, adapters may simply call
-the old code. This preserves behavior while making dependencies replaceable in
-tests.
+## Step 03: Application Service に orchestration を移す
 
-## Step 04: Keep The Controller Thin
+目的は、ユースケースの処理順序を Controller から分離することです。
 
-Read
-[`examples/step-04-thin-controller/SystemSettingsController.php`](../examples/step-04-thin-controller/SystemSettingsController.php).
+[`src/Application/SystemSettings/UpdateSystemSettings.php`](../src/Application/SystemSettings/UpdateSystemSettings.php) では、以下の順序を Application Service が持ちます。
 
-The controller handles HTTP concerns only: request conversion, invoking the use
-case, flash messages, and redirect selection. Do not force view rendering or
-GET-only read models through the update service.
+1. 認可する
+2. 正規化する
+3. バリデーションする
+4. atomic に保存する
+5. 監査ログを書く
+6. キャッシュを削除する
+7. 通知先が変わった場合だけ通知する
 
-CakePHP 4.5 can inject typed action arguments from its DI container. Register
-the concrete adapters and `UpdateSystemSettings` in `Application::services()`,
-then use the action argument shown in the final controller. Do not add a custom
-service locator to `AppController`.
+外部依存は [`src/Application/SystemSettings/Port`](../src/Application/SystemSettings/Port) の interface にします。
+本番では CakePHP ORM、既存 Component、既存 cache、既存 mailer などを adapter として接続します。
 
-The registration shape is:
+完了条件:
+
+- Application Service がユースケースの処理順序を持っている
+- テストで認可、保存、監査ログ、cache、通知を fake に差し替えられる
+- Controller を通さずに Application Service の分岐をテストできる
+
+## Step 04: Controller を薄くする
+
+目的は、Controller を HTTP の責務だけに戻すことです。
+
+[`examples/step-04-thin-controller/SystemSettingsController.php`](../examples/step-04-thin-controller/SystemSettingsController.php) のように、Controller は以下だけを担当します。
+
+- request から command を作る
+- use case を呼ぶ
+- flash message を設定する
+- redirect 先を決める
+- GET 表示用の値を View に渡す
+
+GET 表示用の read model まで無理に update service へ押し込まないでください。
+更新処理と表示用 query は別の変更理由を持ちます。
+
+CakePHP 4.5 では DI container から action 引数へ型付き依存を渡せます。
+本番実装では `Application::services()` に adapter と Application Service を登録します。
+
+登録イメージ:
 
 ```php
 public function services(ContainerInterface $container): void
@@ -118,34 +160,51 @@ public function services(ContainerInterface $container): void
 }
 ```
 
-The `Cake*` adapters are not implemented in this hypothesis repository because
-their correct implementation depends on the production tables, components, and
-side-effect requirements.
+完了条件:
 
-## Rollout Across Many Screens
+- Controller action から業務判断が消えている
+- Application Service のテストが主な安全網になっている
+- Controller integration test は HTTP の接続確認に絞られている
 
-Do not create a generic `SettingsService` with dozens of methods. Extract one
-high-change screen first. After three screens, compare the implementations and
-extract only repeated infrastructure:
+## 複数画面へ展開する順番
 
-- CakePHP transaction adapter;
-- authorization adapter;
-- audit-log adapter;
-- cache adapter;
-- shared scalar normalizers where semantics are truly identical.
+最初から汎用 `SettingsService` を作らないでください。
+`save($screenName, array $settings)` のような形にすると、結局 if と配列操作が別の場所へ移動するだけです。
 
-Keep each use case explicit, such as `UpdateMailSettings` or
-`UpdateInvoiceSettings`. Similar-looking settings often acquire different rules.
+展開手順:
 
-## Decisions That Need Real-Code Evidence
+1. 変更頻度または障害頻度が高い設定画面を 1 つ選ぶ
+2. Step 00 で既存挙動を固定する
+3. Step 01 で保存処理をラップする
+4. Step 02-03 で Application Service に移す
+5. Step 04 で Controller を薄くする
+6. 3 画面終わった時点で共通化できる adapter だけ抽出する
 
-The sample intentionally does not decide:
+共通化してよい候補:
 
-- whether authorization belongs before or inside the transaction;
-- whether audit logging must roll back with the settings write;
-- whether notification should be synchronous or queued;
-- whether optimistic locking is needed;
-- whether reads need query services;
-- whether generic key-value storage should be retained.
+- transaction adapter
+- authorization adapter
+- audit log adapter
+- cache adapter
+- 本当に同じ意味を持つ scalar normalizer
 
-Inspect the production behavior and operational requirements before deciding.
+共通化しない候補:
+
+- 画面ごとの保存ルール
+- 画面ごとの validation
+- 画面ごとの通知条件
+- 画面ごとの redirect / flash
+
+## 実システム確認が必要な判断
+
+この教材では、以下をまだ断定しません。
+
+- 認可を transaction の前に置くか、中に含めるか
+- 監査ログを設定保存と一緒に rollback する必要があるか
+- 通知は同期処理か、queue へ逃がすべきか
+- 楽観ロックが必要か
+- GET 表示用に query service を作る必要があるか
+- 汎用 key-value storage を維持すべきか
+
+これらは一般論では決められません。
+本番コードの実装、障害履歴、運用要件、DB 設計を確認してから決めます。
