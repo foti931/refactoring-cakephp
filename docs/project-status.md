@@ -13,6 +13,8 @@
 | 初期 DB 作成 script | 完了 | [`scripts/init-db.php`](../scripts/init-db.php) |
 | Application Service 例 | 完了 | [`src/Application/SystemSettings`](../src/Application/SystemSettings) |
 | Application Service test | 完了 | 5 ケース |
+| Bake 導入 | 完了 | `bin/cake bake test ...` が利用可能 |
+| PHPUnit 導入 | 完了 | `composer test:phpunit` が利用可能 |
 | Thin Controller 例 | 完了 | [`examples/step-04-thin-controller`](../examples/step-04-thin-controller) |
 | CakePHP 公式生成 script | 完了 | [`scripts/bootstrap-official.sh`](../scripts/bootstrap-official.sh) |
 | 本番 adapter 実装 | 未着手 | 実システムの Table / Component / side effect 確認後 |
@@ -47,6 +49,16 @@ PASS testRejectsInvalidInputBeforeSaving
 PASS testDoesNotReadOrSaveWhenAuthorizationFails
 PASS testDoesNotRunEffectsWhenAtomicSaveFails
 ```
+
+Bake 生成テストの PHPUnit 実行:
+
+```sh
+docker compose exec app composer test:phpunit
+```
+
+このコマンドは毎回 `composer init-db` を実行してから PHPUnit を起動します。
+現時点の `SystemSettingsControllerTest` は Bake が生成した incomplete の雛形です。
+次の作業で、この雛形を Controller integration test に置き換えます。
 
 ## 現在あえて汚くしている点
 

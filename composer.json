@@ -15,6 +15,14 @@
     "scripts": {
         "init-db": "php scripts/init-db.php",
         "serve": "php -S 127.0.0.1:8765 -t webroot webroot/index.php",
-        "test": "php tests/run.php"
+        "test": "php tests/run.php",
+        "test:phpunit": [
+            "@init-db",
+            "vendor/bin/phpunit"
+        ]
+    },
+    "require-dev": {
+        "cakephp/bake": "^2.9",
+        "phpunit/phpunit": "^9.6"
     }
 }

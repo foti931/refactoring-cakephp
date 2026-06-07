@@ -3,5 +3,7 @@ tmp/
 logs/
 node_modules/
 .DS_Store
+.phpunit.result.cache
+.idea/
 /official-cakephp-app/
 /cakephp-official-refactor*/

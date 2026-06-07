@@ -35,6 +35,22 @@ final class SystemSettingsController extends AppController
             'beta_notice' => 'Beta notice',
         ];
 
+        $recipients = $recipientsTable->find()
+            ->select(['email'])
+            ->where(['tenant_id' => $tenantId])
+            ->all()
+            ->extract('email')
+            ->toList();
+
+        $enabledFlags = $featureFlagsTable->find()
+            ->select(['feature_key'])
+            ->where(['tenant_id' => $tenantId, 'enabled' => true])
+            ->all()
+            ->extract('feature_key')
+            ->toList();
+
+        $this->set(compact('settings', 'recipients', 'featureOptions', 'enabledFlags'));
+
         if ($this->request->is(['post', 'put'])) {
             $data = $this->request->getData();
             $enabled = !empty($data['notification_enabled']);
@@ -135,19 +151,6 @@ final class SystemSettingsController extends AppController
                 $this->Flash->error('Could not save settings.');
             }
         }
-
-        $recipients = $recipientsTable->find()
-            ->select(['email'])
-            ->where(['tenant_id' => $tenantId])
-            ->all()
-            ->extract('email')
-            ->toList();
-        $enabledFlags = $featureFlagsTable->find()
-            ->select(['feature_key'])
-            ->where(['tenant_id' => $tenantId, 'enabled' => true])
-            ->all()
-            ->extract('feature_key')
-            ->toList();
 
         $this->set(compact('settings', 'recipients', 'featureOptions', 'enabledFlags'));
     }

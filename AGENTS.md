@@ -40,6 +40,13 @@ docker compose exec app composer init-db
 docker compose exec app composer test
 ```
 
+Bake / PHPUnit:
+
+```sh
+docker compose exec app bin/cake bake test controller SystemSettings --no-fixture
+docker compose exec app composer test:phpunit
+```
+
 画面:
 
 ```text
@@ -58,6 +65,7 @@ http://127.0.0.1:8080
 - [`examples/step-04-thin-controller`](examples/step-04-thin-controller): 薄い Controller の例
 - [`src/Application/SystemSettings`](src/Application/SystemSettings): Application Service の例
 - [`tests/Application/SystemSettings`](tests/Application/SystemSettings): Application Service のテスト
+- [`tests/TestCase/Controller`](tests/TestCase/Controller): Bake 生成の CakePHP 標準テスト雛形
 
 ## 教材として守るべき構造
 

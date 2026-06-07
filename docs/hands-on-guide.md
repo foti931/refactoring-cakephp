@@ -23,8 +23,8 @@
 
 ```sh
 docker compose up --build -d
-docker compose exec app composer init-db
 docker compose exec app composer test
+docker compose exec app composer test:phpunit
 ```
 
 ブラウザで以下を開き、設定画面が表示されることを確認します。
@@ -60,8 +60,15 @@ http://127.0.0.1:8080
 
 演習:
 
+- Bake で Controller test の雛形を生成する
 - 既存 Controller の integration test として必要なケースを列挙する
 - 保存成功、validation error、権限なし、通知あり/なしの期待値を書く
+
+Bake コマンド:
+
+```sh
+docker compose exec app bin/cake bake test controller SystemSettings --no-fixture
+```
 
 ポイント:
 
